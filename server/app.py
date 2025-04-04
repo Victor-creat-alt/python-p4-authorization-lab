@@ -13,87 +13,106 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.json.compact = False
 
 migrate = Migrate(app, db)
-
 db.init_app(app)
-
 api = Api(app)
 
-class ClearSession(Resource):
 
+# Clear Session Resource
+class ClearSession(Resource):
     def delete(self):
-    
         session['page_views'] = None
         session['user_id'] = None
-
         return {}, 204
 
+
+# Index Article Resource
 class IndexArticle(Resource):
-    
     def get(self):
         articles = [article.to_dict() for article in Article.query.all()]
         return make_response(jsonify(articles), 200)
 
+
+# Show Article Resource
 class ShowArticle(Resource):
-
     def get(self, id):
-
         article = Article.query.filter(Article.id == id).first()
+        if not article:
+            return {'message': 'Article not found'}, 404
+
         article_json = article.to_dict()
 
         if not session.get('user_id'):
-            session['page_views'] = 0 if not session.get('page_views') else session.get('page_views')
+            session['page_views'] = session.get('page_views', 0)
             session['page_views'] += 1
 
             if session['page_views'] <= 3:
                 return article_json, 200
-
             return {'message': 'Maximum pageview limit reached'}, 401
 
         return article_json, 200
 
-class Login(Resource):
 
+# Login Resource
+class Login(Resource):
     def post(self):
-        
         username = request.get_json().get('username')
         user = User.query.filter(User.username == username).first()
 
         if user:
-        
             session['user_id'] = user.id
             return user.to_dict(), 200
 
         return {}, 401
 
+
+# Logout Resource
 class Logout(Resource):
-
     def delete(self):
-
         session['user_id'] = None
-        
         return {}, 204
 
-class CheckSession(Resource):
 
+# Check Session Resource
+class CheckSession(Resource):
     def get(self):
-        
-        user_id = session['user_id']
+        user_id = session.get('user_id')
         if user_id:
             user = User.query.filter(User.id == user_id).first()
+            if not user:
+                return {'message': 'User not found'}, 404
             return user.to_dict(), 200
-        
+
         return {}, 401
 
+
+# Member-Only Index Resource
 class MemberOnlyIndex(Resource):
-    
     def get(self):
-        pass
+        # Check if user is authenticated
+        if not session.get('user_id'):
+            return {'message': 'Unauthorized access'}, 401
 
+        # Retrieve member-only articles
+        articles = [article.to_dict() for article in Article.query.filter(Article.is_member_only.is_(True))]
+        return make_response(jsonify(articles), 200)
+
+
+# Member-Only Article Resource
 class MemberOnlyArticle(Resource):
-    
     def get(self, id):
-        pass
+        # Check if user is authenticated
+        if not session.get('user_id'):
+            return {'message': 'Unauthorized access'}, 401
 
+        # Retrieve the member-only article by ID
+        article = Article.query.filter(Article.id == id, Article.is_member_only.is_(True)).first()
+        if not article:
+            return {'message': 'Article not found or not member-only'}, 200
+
+        return make_response(jsonify(article.to_dict()), 200)
+
+
+# Add Resources to API
 api.add_resource(ClearSession, '/clear', endpoint='clear')
 api.add_resource(IndexArticle, '/articles', endpoint='article_list')
 api.add_resource(ShowArticle, '/articles/<int:id>', endpoint='show_article')
